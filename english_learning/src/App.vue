@@ -226,6 +226,7 @@ function checkSpell(w: any) {
 <template>
   <div class="head-menu">
     <!-- 搜索行 -->
+     <span>{{ `目前一共有${words.length}个单词` }}</span>
     <div class="search-bar">
       <select v-model="sreach_mode" required>
         <option value="">请选择搜索模式 默认标签交集搜索</option>
@@ -271,7 +272,7 @@ function checkSpell(w: any) {
 
         <div v-for="(list, idx) in grp.content" :key="idx">
           <h2 v-if="list.length" class="letter-head">
-            {{ idx >= 26 ? '#' : String.fromCharCode(65 + idx) }}
+            {{ `${idx >= 26 ? '#' : String.fromCharCode(65 + idx)}:${list.length} words` }}
           </h2>
 
           <ul class="word-list">
