@@ -7,7 +7,7 @@ import path from 'path';
 import express from 'express';
 import cors from 'cors';
 //tsx backend.ts
-import { insertWord, updateWord, deleteWord, getWord } from './database';
+import { insertWord, updateCollectByWord, deleteWord, getWord } from './database';
 
 const app = express();
 const PORT = 3001;

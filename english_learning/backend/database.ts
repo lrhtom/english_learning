@@ -48,24 +48,20 @@ export async function deleteWord(id: number) {
 }
 
 /* ---------- 改 ---------- */
-export async function updateWord(
-  id: number,
-  updates: Partial<Omit<Word, 'id'>>
-) {
-  const sets: string[] = [];
-  const values: any[] = [];
-  for (const [k, v] of Object.entries(updates)) {
-    sets.push(`${k} = ?`);
-    values.push(v);
-  }
-  if (!sets.length) throw new Error('无更新字段');
-  values.push(id);
+export async function updateCollectByWord(
+  word: string,
+  is_collected: 0 | 1
+): Promise<number> {
   const conn = await getDB();
+  // 忽略大小写匹配；如需严格区分删除 LOWER()
   const res = await conn.run(
-    `UPDATE word SET ${sets.join(', ')} WHERE id = ?`,
-    ...values
+    `UPDATE word
+     SET is_collected = ?
+     WHERE LOWER(word) = LOWER(?)`,
+    is_collected,
+    word
   );
-  return res.changes;
+  return res.changes; // 受影响的行数
 }
 
 /* ---------- 查 ---------- */

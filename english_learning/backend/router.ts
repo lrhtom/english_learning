@@ -1,7 +1,7 @@
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
-import { insertWord, updateWord, deleteWord, getWord } from './database';
+import { insertWord, updateCollectByWord, deleteWord, getWord } from './database';
 
 
 const router = express.Router();
@@ -50,6 +50,23 @@ router.post('/insert_new_word',async (req, res) => {
     );
 
     res.status(201).json({ id: lastID, message: '单词已创建' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+// router.ts
+router.post('/collects', async (req, res) => {
+  try {
+    const { word, is_collected } = req.body;
+
+    /* 简单校验 */
+    if (word === undefined || is_collected === undefined) {
+      return res.status(400).json({ error: '缺少参数 word 或 is_collected' });
+    }
+
+    const changes = await updateCollectByWord(word, is_collected);
+    res.json({ changes, message: '收藏状态已更新' });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: '服务器内部错误' });
