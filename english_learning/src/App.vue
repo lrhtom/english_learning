@@ -220,13 +220,25 @@ function checkSpell(w: any) {
   w._spellClass = ok ? 'right' : 'wrong';
 }
 
+function speak(word, w) {
+  if (w._speaking) return;          // 防止重复点击
+  w._speaking = true;
+
+  const utter = new SpeechSynthesisUtterance(word);
+  utter.lang = 'en-US';
+  utter.onend = () => { w._speaking = false; };
+  utter.onerror = () => { w._speaking = false; };
+
+  speechSynthesis.cancel();
+  speechSynthesis.speak(utter);
+}
 
 </script>
 
 <template>
   <div class="head-menu">
     <!-- 搜索行 -->
-     <span>{{ `目前一共有${words.length}个单词` }}</span>
+    <span>{{ `目前一共有${words.length}个单词` }}</span>
     <div class="search-bar">
       <select v-model="sreach_mode" required>
         <option value="">请选择搜索模式 默认标签交集搜索</option>
@@ -272,15 +284,36 @@ function checkSpell(w: any) {
 
         <div v-for="(list, idx) in grp.content" :key="idx">
           <h2 v-if="list.length" class="letter-head">
-            {{ `${idx >= 26 ? '#' : String.fromCharCode(65 + idx)}:${list.length} words` }}
+            {{ `${idx >= 26 ? '#' : String.fromCharCode(65 + idx)}` }}
           </h2>
+          <h3 class="letter-head">{{ `${list.length} words` }}</h3>
 
           <ul class="word-list">
             <li class="word-row" v-for="w in list" :key="w.id">
-              <span class="word-txt" >{{(!w._show ? `${w.word} · ${w.meaning} · ${w.pos}`:`**************`) }}</span>
+              <span class="word-txt">{{ `${(!w._show ? `${w.word}` : `**************`)}· ${w.meaning} · ${w.pos}`
+              }}</span>
               <span class="tag-pill">{{ w.tag }}</span>
-              <span class="star" @click="collect_change(w.word, (w.is_collected === 1 ? 0 : 1))">{{ w.is_collected ? '♥' :
+              <span class="star" @click="collect_change(w.word, (w.is_collected === 1 ? 0 : 1))">{{ w.is_collected ? '♥'
+                :
                 '♡' }}</span>
+
+              <span class="speak-btn" @click="speak(w.word, w)" :title="w._speaking ? '播放中…' : '朗读单词'"
+                style="cursor: pointer; margin-left: 6px; user-select: none;">
+                <!-- 播放时显示波动 SVG，静止时显示静态喇叭 -->
+                <svg v-if="w._speaking" width="16" height="16" viewBox="0 0 16 16">
+                  <!-- 简单波动条 -->
+                  <rect x="1" y="4" width="3" height="8" fill="#409EFF">
+                    <animate attributeName="height" values="8;4;8" dur="0.6s" repeatCount="indefinite" />
+                  </rect>
+                  <rect x="5" y="2" width="3" height="12" fill="#409EFF">
+                    <animate attributeName="height" values="12;6;12" dur="0.6s" repeatCount="indefinite" />
+                  </rect>
+                  <rect x="9" y="4" width="3" height="8" fill="#409EFF">
+                    <animate attributeName="height" values="8;4;8" dur="0.6s" repeatCount="indefinite" />
+                  </rect>
+                </svg>
+                <span v-else>🔊</span>
+              </span>
               <!-- 右侧：隐藏/默写 -->
               <span class="toggle-btn" @click="w._show = !w._show">
                 {{ w._show ? '🔒' : '✏️' }}
@@ -488,6 +521,7 @@ select:focus,
     flex: 0 0 auto;
   }
 }
+
 /* 控制按钮 */
 .toggle-btn {
   margin-left: 8px;
@@ -505,10 +539,12 @@ select:focus,
   margin-left: 8px;
   transition: background 0.2s;
 }
+
 .spell-input.right {
   background: #f0f9ff;
   border-color: #52c41a;
 }
+
 .spell-input.wrong {
   background: #fff1f0;
   border-color: #ff4d4f;

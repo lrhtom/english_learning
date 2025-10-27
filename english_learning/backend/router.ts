@@ -9,7 +9,7 @@ const router = express.Router();
 router.get('/get_all_word',async  (req, res) => {
   console.log(1);
   try {
-      const words = await getWord('SELECT * FROM word ORDER BY word ASC');
+      const words = await getWord('SELECT * FROM word ORDER BY LOWER(word) ASC');
       res.json(words)
   }catch (e) {
     console.error(e);
