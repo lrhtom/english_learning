@@ -18,13 +18,11 @@ export async function loadWordsAndTags() {
       axios.get(`${baseURL}/get_all_word`),
       axios.get(`${baseURL}/get_all_tag`)
     ]);
-    words.value     = wRes.data;
+    words.value = wRes.data;
     tags_dict.value = tRes.data;
   } catch (e) {
     console.error('拉取失败', e);
   }
 }
 loadWordsAndTags()
-app.use(router)
-
-app.mount('#app')
+app.use(router).mount('#app')
