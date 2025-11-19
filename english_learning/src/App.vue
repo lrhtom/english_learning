@@ -28,6 +28,9 @@ tag:"asd".
   <nav class="nav-bar">
     <router-link to="/">错题本</router-link>
     <router-link to="/ai_talk">AI 外教页面</router-link>
+    <router-link to="/ai_writing">AI 写作批改</router-link>
+    <router-link to="/dicts">有用链接</router-link>
+    <router-link to="/speechsyn">听写</router-link>
   </nav>
   <router-view />
 </template>

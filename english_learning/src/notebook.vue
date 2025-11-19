@@ -21,11 +21,16 @@ tag:"asd".
 ]
 */
 import { words, tags_dict, loadWordsAndTags } from './main';
-import { createApp, ref } from 'vue';
+import { createApp, ref, computed } from 'vue';
 import axios from 'axios';
 let sreach_mode = ref("");
-
-function get_words(str) {
+const pageSize = 50;                       // 每页条数
+const page = ref(1);                       // 当前页码
+const pageCount = computed(() => {         // 总页数
+    const total = words.value.length;
+    return total === 0 ? 1 : Math.ceil(total / pageSize);
+});
+function _getWordsRaw(str: string) {
     if (str === "" || str === "tag_megin") {
         return get_by_mg_tag(get_input_text())
     }
@@ -38,13 +43,44 @@ function get_words(str) {
     else if (str === "chinese") {
         return get_by_chinese(input_text.value);
     }
+    else if (str === "collection") {
+        return get_by_collection();
+    }
+}
+function get_words(mode: string) {
+    // 1. 先拿到“原始”过滤结果（结构和以前完全一样）
+    const raw = _getWordsRaw(mode);
+
+    // 2. 如果没有数据直接返回空壳
+    if (!raw.length) return raw;
+
+    // 3. 取出当前要显示的那“一页”单词（平铺）
+    const start = (page.value - 1) * pageSize;
+    const end = start + pageSize;
+    const flatWords: any[] = [];
+    raw[0].content.forEach(bucket => flatWords.push(...bucket));
+    const pageWords = flatWords.slice(start, end);
+
+    // 4. 把这页单词重新按首字母丢回 65 个桶
+    const buckets: any[] = Array.from({ length: 27 }, () => []);
+    pageWords.forEach((w: any) => {
+        let idx = w.word.charCodeAt(0) - 65;
+        if (idx < 0 || idx > 25) idx = 26;      // 非字母放 #
+        buckets[idx].push(w);
+    });
+
+    // 5. 拼回和原来一样的数据结构
+    return [{
+        tag: raw[0].tag,
+        content: buckets
+    }];
 }
 function get_by_mt_tag(tags) {
 
 }
 function get_by_english(str) {
-    let arrs = words.value;
-    let ress = [];
+    let arrs: any = words.value;
+    let ress: any = [];
     let bodys = {
         "tag": str + " results",
         "content": []
@@ -112,8 +148,37 @@ function get_by_chinese(str) {
     //console.log(ress)
     return ress;
 }
-function get_by_mg_tag(tags) {
+function get_by_collection() {
     let arrs = words.value;
+    let ress = [];
+    let bodys = {
+        "tag": " 收藏",
+        "content": []
+    };
+    for (var i2 = 0; i2 < 100; i2++)bodys.content.push([]);
+    let arr = arrs.filter(arrs => arrs.is_collected === 1);
+    //console.log(arr, str)
+    for (var i2 = 0; i2 < arr.length; i2++) {
+        var ct = arr[i2].word.charCodeAt(0) - 65;
+        if (ct < 0) {
+            bodys.content[26].push(
+                arr[i2]
+            );
+        }
+        else {
+            bodys.content[ct].push(
+                arr[i2]
+            );
+        }
+    }
+
+    ress.push(bodys);
+    //console.log(bodys)
+    //console.log(ress)
+    return ress;
+}
+function get_by_mg_tag(tags) {
+    let arrs: any = words.value;
     let ress = [];
 
     for (var i = 0; i < tags.length; i++) {
@@ -189,12 +254,14 @@ async function insert_words() {
     loadWordsAndTags();
     get_words(sreach_mode.value)
 }
-async function collect_change(str, num) {
+
+async function collect_change(w) {
+    w.is_collected = (w.is_collected === 1 ? 0 : 1)
     await axios.post('http://localhost:3001/word_data/collects', {
-        word: str,
-        is_collected: num,
+        word: w.word,
+        is_collected: w.is_collected,
     });
-    loadWordsAndTags();
+    //loadWordsAndTags();
 }
 
 
@@ -233,12 +300,123 @@ function speak(word, w) {
     speechSynthesis.speak(utter);
 }
 
+// 控制当前是否“全展开”
+let allShow = ref(false);
+function all_hide_or_vis() {
+    allShow.value = !allShow.value;          // 切换状态
+    const list = get_words(sreach_mode.value); // 当前显示的词
+    list.forEach(grp =>
+        grp.content.forEach(arr =>
+            arr.forEach(w => {
+                w._show = allShow.value;     // 批量赋值
+                if (!allShow.value) {        // 如果收起，顺便清空输入和结果
+                    w._input = '';
+                    w._result = '';
+                    w._spellClass = '';
+                }
+            })
+        )
+    );
+}
+async function setReview(w: any, delta: number) {
+    // 1. 先本地计算新值
+    const oldVal = w.review ?? 0;
+    const newVal = Math.max(0, oldVal + delta);
+    w.review = newVal;              // 立即展示，避免卡顿
+
+    // 2. 再调用后端落库
+    try {
+        await axios.post('http://localhost:3001/word_data/review', {
+            word: w.word,      // 只传单词字符串
+            review: newVal,    // 传绝对值，不是增量
+        });
+    } catch (e: any) {
+        // 3. 失败回滚 + 提示
+        w.review = oldVal;
+        const msg = e.response?.data?.error || '更新复习次数失败';
+        alert(msg);
+    }
+}
+
+/* 统计各复习次数的单词数量（返回有序键值对象） */
+const reviewDist = computed(() => {
+    const map: Record<number, number> = {}
+    words.value.forEach((w: any) => {
+        const t = w.review ?? 0
+        map[t] = (map[t] || 0) + 1
+    })
+    return Object.keys(map)
+        .sort((a, b) => Number(a) - Number(b))
+        .reduce((o, k) => ({ ...o, [k]: map[k] }), {} as Record<string, number>)
+})
+
+/* ===== 拼读：逐字母朗读 ===== */
+function delay(ms: number) {
+    return new Promise<void>(resolve => {
+        const u = new SpeechSynthesisUtterance('');
+        u.rate = 10;   // 极快，相当于停顿
+        u.onend = () => resolve();
+        speechSynthesis.speak(u);
+    });
+}
+
+async function speak_lt(word: string, w: any) {
+    if (w._speaking) return;
+    w._speaking = true;
+
+    // 把空格读成 "space"，其余保持大写
+    const letters = word.toUpperCase().split('').map(ch => (ch === ' ' ? 'space' : ch));
+
+    for (const lt of letters) {
+        await new Promise<void>(res => {
+            const u = new SpeechSynthesisUtterance(lt);
+            u.lang = 'en-US';
+            u.rate = 0.9;
+            u.onend = () => res();
+            speechSynthesis.speak(u);
+        });
+
+    }
+
+    w._speaking = false;
+}
+function GetNumberOfCollection() {
+    let cnt = 0;
+    for (var i = 0; i < words.value.length; i++) {
+        cnt += words.value[i].is_collected
+    }
+    return cnt;
+}
+/* 最多显示 5 个数字按钮 */
+const visiblePages = computed(() => {
+    const total = pageCount.value
+    const cur = page.value
+    if (total <= 5) {
+        // 不足 5 页 → 全部显示
+        return Array.from({ length: total }, (_, i) => i + 1)
+    }
+    /* 超过 5 页 → 当前页尽量居中，边界收缩 */
+    let start = cur - 2
+    let end = cur + 2
+    if (start < 1) {
+        end += 1 - start
+        start = 1
+    }
+    if (end > total) {
+        start -= end - total
+        end = total
+    }
+    /* 再次保护边界 */
+    if (start < 1) start = 1
+    const len = Math.min(5, total - start + 1)
+    return Array.from({ length: len }, (_, i) => start + i)
+})
 </script>
 
 <template>
     <div class="head-menu">
         <!-- 搜索行 -->
-        <span>{{ `目前一共有${words.length}个单词` }}</span>
+        <span>{{ `目前一共有${words.length}个单词 收藏${GetNumberOfCollection()}个` }}</span>
         <div class="search-bar">
             <select v-model="sreach_mode" required>
                 <option value="">请选择搜索模式 默认标签交集搜索</option>
@@ -246,6 +424,7 @@ function speak(word, w) {
                 <option value="tag_megin">标签交集搜索</option>
                 <option value="english">英语搜索</option>
                 <option value="chinese">中文搜索</option>
+                <option value="collection">全部收藏</option>
             </select>
             <input class="input-place" v-model="input_text" placeholder="输入关键词" />
         </div>
@@ -275,10 +454,23 @@ function speak(word, w) {
                     </span>
                 </li>
             </ul>
+            <!-- 新增：各复习次数对应的单词数量（纯数字） -->
+            <section class="review-dist">
+                <h3 class="dist-title">复习次数分布</h3>
+                <ul class="dist-list">
+                    <li v-for="(count, times) in reviewDist" :key="times">
+                        复习 {{ times }} 次：{{ count }} 个单词
+                    </li>
+                </ul>
+                <button class="add-btn" @click="all_hide_or_vis">
+                    {{ allShow ? '一键收起' : '一键默写' }}
+                </button>
+            </section>
         </aside>
 
         <!-- 中间单词列表 -->
         <main class="word-main-col">
+
             <div v-for="grp in get_words(sreach_mode)" :key="grp.tag" class word-group>
                 <h1 class="group-title">{{ grp.tag }}</h1>
 
@@ -290,17 +482,16 @@ function speak(word, w) {
 
                     <ul class="word-list">
                         <li class="word-row" v-for="w in list" :key="w.id">
-                            <span class="word-txt">{{ `${(!w._show ? `${w.word}` : `**************`)}· ${w.meaning} ·
+                            <span class="word-txt">{{ `${(!w._show ? `${w.word}` : `******`)}· ${w.meaning} ·
                                 ${w.pos}`
-                                }}</span>
+                            }}</span>
                             <span class="tag-pill">{{ w.tag }}</span>
-                            <span class="star" @click="collect_change(w.word, (w.is_collected === 1 ? 0 : 1))">{{
+                            <span class="star" @click="collect_change(w)">{{
                                 w.is_collected ? '♥'
-                                :
-                                '♡' }}</span>
+                                    :
+                                    '♡' }}</span>
 
-                            <span class="speak-btn" @click="speak(w.word, w)" :title="w._speaking ? '播放中…' : '朗读单词'"
-                                style="cursor: pointer; margin-left: 6px; user-select: none;">
+                            <span class="speak-btn" @click="speak(w.word, w)" :title="w._speaking ? '播放中…' : '朗读单词'">
                                 <!-- 播放时显示波动 SVG，静止时显示静态喇叭 -->
                                 <svg v-if="w._speaking" width="16" height="16" viewBox="0 0 16 16">
                                     <!-- 简单波动条 -->
@@ -317,9 +508,34 @@ function speak(word, w) {
                                             repeatCount="indefinite" />
                                     </rect>
                                 </svg>
-                                <span v-else>🔊</span>
+                                <span v-else>单词发音🔊</span>
+                            </span>
+                            <span class="speak-btn" @click="speak_lt(w.word, w)" :title="w._speaking ? '播放中…' : '拼读字母'">
+                                <!-- 播放时显示波动 SVG，静止时显示静态喇叭 -->
+                                <svg v-if="w._speaking" width="16" height="16" viewBox="0 0 16 16">
+                                    <!-- 简单波动条 -->
+                                    <rect x="1" y="4" width="3" height="8" fill="#409EFF">
+                                        <animate attributeName="height" values="8;4;8" dur="0.6s"
+                                            repeatCount="indefinite" />
+                                    </rect>
+                                    <rect x="5" y="2" width="3" height="12" fill="#409EFF">
+                                        <animate attributeName="height" values="12;6;12" dur="0.6s"
+                                            repeatCount="indefinite" />
+                                    </rect>
+                                    <rect x="9" y="4" width="3" height="8" fill="#409EFF">
+                                        <animate attributeName="height" values="8;4;8" dur="0.6s"
+                                            repeatCount="indefinite" />
+                                    </rect>
+                                </svg>
+                                <span v-else>拼写发音🔊</span>
                             </span>
                             <!-- 右侧：隐藏/默写 -->
+                            <span>复习次数</span>
+                            <span class="review-bar">
+                                <span class="review-btn" @click="setReview(w, -1)">-</span>
+                                <span>{{ w.review ?? 0 }}</span>
+                                <span class="review-btn" @click="setReview(w, 1)">+</span>
+                            </span>
                             <span class="toggle-btn" @click="w._show = !w._show">
                                 {{ w._show ? '🔒' : '✏️' }}
                             </span>
@@ -334,17 +550,112 @@ function speak(word, w) {
                     </ul>
                 </div>
             </div>
+            <!-- 模板部分 -->
+            <div class="pager">
+                <button class="pager-btn" :disabled="page <= 1" @click="page--" aria-label="上一页">
+                    <svg viewBox="0 0 24 24" width="16" height="16">
+                        <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+                    </svg>
+                </button>
+
+                <!-- 可视页码（最多 5 个） -->
+                <ul class="pager-list">
+                    <li v-for="p in visiblePages" :key="p" :class="{ active: p === page }" @click="page = p">
+                        {{ p }}
+                    </li>
+                </ul>
+
+                <button class="pager-btn" :disabled="page >= pageCount" @click="page++" aria-label="下一页">
+                    <svg viewBox="0 0 24 24" width="16" height="16">
+                        <path d="M8.59 16.59L10 18l6-6-6-6-1.41 1.41L13.17 12z" />
+                    </svg>
+                </button>
+            </div>
         </main>
 
         <!-- 右侧占位/扩展栏 -->
-        <aside class="side-extra"></aside>
+        <aside class="side-extra">
+
+            <iframe src="https://www.bing.com/translator" style="width:100%; height:100vh; border:none;"
+                sandbox="allow-same-origin allow-scripts allow-popups allow-forms" title="Bing Translator"></iframe>
+        </aside>
     </div>
 
 
 </template>
 
 <style scoped>
+/* 样式部分 */
+.pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 20px 0;
+    user-select: none;
+}
+
+.pager-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid #dcdfe6;
+    border-radius: 50%;
+    background: #fff;
+    cursor: pointer;
+    transition: all 0.25s;
+}
+
+.pager-btn:hover:not(:disabled) {
+    border-color: #409eff;
+    color: #409eff;
+    transform: scale(1.08);
+}
+
+.pager-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.pager-btn svg {
+    fill: currentColor;
+}
+
+.pager-list {
+    display: flex;
+    gap: 6px;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.pager-list li {
+    min-width: 32px;
+    height: 32px;
+    line-height: 32px;
+    text-align: center;
+    border-radius: 6px;
+    font-size: 14px;
+    color: #606266;
+    cursor: pointer;
+    transition: all 0.25s;
+}
+
+.pager-list li:hover {
+    background: #ecf5ff;
+    color: #409eff;
+}
+
+.pager-list li.active {
+    background: #409eff;
+    color: #fff;
+    font-weight: 600;
+}
+
 /* 顶部控制栏 */
+
 .head-menu {
     display: flex;
     flex-direction: column;
@@ -415,9 +726,12 @@ select:focus,
     min-height: 100vh;
 }
 
-.side-tag,
+.side-tag {
+    flex: 0 0 200px;
+}
+
 .side-extra {
-    flex: 0 0 220px;
+    flex: 0 0 400px;
 }
 
 .word-main-col {
@@ -560,5 +874,58 @@ select:focus,
     margin-left: 4px;
     font-size: 0.9rem;
     color: #666;
+}
+
+.review-bar {
+
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 6px;
+    font-size: 0.9rem;
+    color: #606266;
+
+}
+
+.review-btn {
+    width: 20px;
+    height: 20px;
+    line-height: 20px;
+    text-align: center;
+    border: 1px solid #dcdfe6;
+    border-radius: 4px;
+    background: #fff;
+    cursor: pointer;
+    user-select: none;
+    transition: border-color 0.2s;
+}
+
+.review-btn:hover {
+    border-color: #409eff;
+}
+
+/* 仅保留文字样式 */
+.review-dist {
+    position: sticky;
+    top: 0;
+    margin-top: 24px;
+}
+
+.dist-title {
+    font-size: 1rem;
+    color: #303133;
+    margin: 0 0 8px 0;
+}
+
+.dist-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 0.9rem;
+    color: #606266;
+}
+
+.dist-list li {
+    margin: 2px 0;
 }
 </style>

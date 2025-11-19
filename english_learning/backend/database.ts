@@ -29,13 +29,14 @@ export async function insertWord(
   pos: string,
   meaning: string,
   audio?: string,
-  is_collected = 0
+  is_collected = 0,
+  review = 0
 ) {
   const conn = await getDB();
   const res = await conn.run(
-    `INSERT INTO word(word, tag, pos, meaning, audio, is_collected)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    word, tag, pos, meaning, audio ?? null, is_collected
+    `INSERT INTO word(word, tag, pos, meaning, audio, is_collected,review)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    word, tag, pos, meaning, audio ?? null, is_collected,review
   );
   return res.lastID; // 返回新主键
 }
@@ -64,6 +65,21 @@ export async function updateCollectByWord(
   return res.changes; // 受影响的行数
 }
 
+export async function updateReviewByWord(
+  word: string,
+  review :number
+): Promise<number> {
+  const conn = await getDB();
+  // 忽略大小写匹配；如需严格区分删除 LOWER()
+  const res = await conn.run(
+    `UPDATE word
+     SET review = ?
+     WHERE LOWER(word) = LOWER(?)`,
+    review,
+    word
+  );
+  return res.changes; // 受影响的行数
+}
 /* ---------- 查 ---------- */
 export async function getWord(id : String) {
   const conn = await getDB();
@@ -79,7 +95,44 @@ export interface Word {
   audio: string | null;
   is_collected: number;
 }
+export interface GlobalVar {
+  learning_pointer: number;
+  learning_count:   number;
+}
 
+/** 读取进度 */
+export async function getProgress(): Promise<GlobalVar> {
+  const db = await getDB();
+  // 表只有一行，没有就自动初始化 (0,0)
+  const row = await db.get<GlobalVar>('SELECT * FROM global_var LIMIT 1');
+  if (!row) {
+    await db.run('INSERT INTO global_var (learning_pointer,learning_count) VALUES (0,0)');
+    return { learning_pointer: 0, learning_count: 0 };
+  }
+  return row;
+}
+
+/** 更新指针（+1 或任意值）*/
+export async function updatePointer(delta = 1): Promise<void> {
+  const db = await getDB();
+  await db.run(
+    `UPDATE global_var
+     SET learning_pointer = learning_pointer + ?`,
+    delta
+  );
+}
+
+/** 重置指针 & 计数（重新听写时调用）*/
+export async function resetProgress(): Promise<void> {
+  const db = await getDB();
+  await db.run(`UPDATE global_var SET learning_pointer = 0, learning_count = 0`);
+}
+
+/** 设置本次总题数（听写开始前写入）*/
+export async function setLearningCount(total: number): Promise<void> {
+  const db = await getDB();
+  await db.run(`UPDATE global_var SET learning_count = ?`, total);
+}
 /* ---------- CLI 演示 
 if (require.main === module) {
   (async () => {

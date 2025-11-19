@@ -24,16 +24,7 @@ recognition.lang = 'en-US'
 recognition.interimResults = true   // ← 关键：开启中间结果
 recognition.continuous = true
 
-recognition.onresult = (e: any) => {
-    let finalChunk = '';
-    let interimChunk = '';
-    for (let i = e.resultIndex; i < e.results.length; ++i) {
-        if (e.results[i].isFinal) finalChunk += e.results[i][0].transcript + ' ';
-        else interimChunk += e.results[i][0].transcript;
-    }
-    if (finalChunk) recogText.value += finalChunk;   // 累加
-    interimText.value = interimChunk;                // 中间结果仅展示
-};
+
 async function scrollToBottom() {
     await nextTick()
     const chatBox = document.querySelector('.chat-area') as HTMLElement
@@ -61,10 +52,12 @@ recognition.onend = () => {
     if (finalText.value.trim()) {
         input.value = finalText.value.trim()
         nextTick(send)   // 自动发送
+        
     }
 }
 
 function startRecord() {
+  input.value='';
     if (!('webkitSpeechRecognition' in window)) {
         alert('请使用 Chrome/Edge 以支持语音输入')
         return
@@ -120,233 +113,289 @@ function onKeydown(e: KeyboardEvent) {
         send()
     }
 }
+recognition.onresult = (e: any) => {
+  let finalChunk = ''
+  let interimChunk = ''
+  for (let i = e.resultIndex; i < e.results.length; ++i) {
+    if (e.results[i].isFinal) finalChunk += e.results[i][0].transcript + ' '
+    else interimChunk += e.results[i][0].transcript
+  }
+  if (finalChunk) {
+    finalText.value += finalChunk
+    input.value = finalText.value          // ← 实时写入文本框
+  }
+  interimText.value = interimChunk
+}
 </script>
 
 <template>
     <div class="ai-talk">
-        <div class="talk-card">
-            <h1 class="title">AI 对话页面</h1>
+  <div class="talk-card">
+    <h1 class="title">AI 对话页面</h1>
 
-            <!-- 聊天记录 -->
-            <div class="chat-area">
-                <template v-if="msgList.length">
-                    <div v-for="(msg, idx) in msgList" :key="idx" :class="['bubble', msg.role]">
-                        {{ msg.text }}
-                    </div>
-                </template>
-                <p v-else class="placeholder">快来和 AI 聊聊吧~</p>
-            </div>
-
-            <!-- 输入控制区 -->
-            <div class="control-box">
-                <!-- 1. 文本输入 -->
-                <input v-model="input" class="chat-input" placeholder="输入消息，回车发送"
-                    :disabled="loading || speaking || isRecording" @keydown="onKeydown" />
-
-                <!-- 2. 语音按钮 + 实时识别 -->
-                <button class="voice-btn" :class="{ active: isRecording }" @click="toggleRecord"
-                    :disabled="loading || speaking">
-                    {{ isRecording ? '🔴 结束录音' : '🎤 点击说英语' }}
-                </button>
-
-                <!-- 实时累加文本 -->
-                <div v-if="isRecording" class="live-text">
-                    {{ finalText }}
-                </div>
-
-                <!-- 3. 发送按钮 -->
-                <button class="send-btn" :disabled="loading || speaking" @click="send">
-                    {{ loading ? '发送中…' : speaking ? '播报中…' : '发送' }}
-                </button>
-            </div>
+    <!-- 聊天记录 -->
+    <div class="chat-area">
+      <template v-if="msgList.length">
+        <div v-for="(msg, idx) in msgList" :key="idx" :class="['bubble', msg.role]">
+          {{ msg.text }}
         </div>
+      </template>
+      <p v-else class="placeholder">快来和 AI 聊聊吧~</p>
     </div>
+
+    <!-- 输入控制区：一体化底部栏 -->
+    <div class="control-box">
+      <div class="input-bar">
+        <textarea
+  v-model="input"
+  class="chat-input"
+  placeholder="输入消息，Ctrl+Enter 发送"
+  :disabled="loading || speaking || isRecording"
+  @keydown="onKeydown"
+  aria-label="消息输入框"
+  enterkeyhint="send"
+  rows="1"
+/>
+        <div class="btn-group">
+          <!-- 语音 -->
+          <button
+            class="voice-btn"
+            :class="{ active: isRecording }"
+            @click="toggleRecord"
+            :disabled="loading || speaking"
+            aria-label="语音输入"
+            type="button"
+          >
+            <svg v-if="!isRecording" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+              <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+            </svg>
+            <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="9" y="2" width="6" height="20" rx="3"/>
+              <rect x="2" y="9" width="20" height="6" rx="3"/>
+            </svg>
+          </button>
+
+          <!-- 发送 -->
+          <button
+            class="send-btn"
+            @click="send"
+            :disabled="loading || speaking || !input.trim()"
+            aria-label="发送消息"
+            type="button"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
 </template>
 
 <style scoped>
-/* ---------- 全屏背景 ---------- */
-.control-box {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 1rem 1.5rem;
-    background: #fff;
-    border-top: 1px solid #e4e7ed;
-}
-
-.voice-row {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.live-text {
-    margin-top: 8px;
-    font-size: 0.95rem;
-    color: #303133;
-    min-height: 1.4rem;
-    white-space: pre-wrap;
-}
-
-.live-text .final {
-    font-weight: 500;
-}
-
-.live-text .interim {
-    color: #909399;
-}
-
-/* 移动端自动撑宽 */
-@media (max-width: 600px) {
-    .control-box {
-        padding: 1rem;
-    }
-
-    .chat-input,
-    .voice-btn,
-    .send-btn {
-        width: 100%;
-    }
-}
-
+/* ========= 全屏背景 ========= */
 .ai-talk {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    padding: 1rem;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 1rem;
 }
 
 /* ---------- 卡片 ---------- */
 .talk-card {
-    width: 100%;
-    max-width: 720px;
-    background: #ffffff;
-    border-radius: 16px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+  width: 100%;
+  max-width: 720px;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .title {
-    margin: 0;
-    padding: 1.2rem 1.5rem;
-    font-size: 1.5rem;
-    font-weight: 600;
-    color: #fff;
-    background: linear-gradient(90deg, #409eff 0%, #79bbff 100%);
-    letter-spacing: 0.5px;
+  margin: 0;
+  padding: 1.2rem 1.5rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(90deg, #409eff 0%, #79bbff 100%);
+  letter-spacing: 0.5px;
 }
 
 /* ---------- 聊天内容区 ---------- */
 .chat-area {
-    flex: 1;
-    padding: 1rem 1.5rem;
-    min-height: 320px;
-    max-height: 50vh;
-    overflow-y: auto;
-    background: #fafafa;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
+  flex: 1;
+  padding: 1rem 1.5rem;
+  min-height: 320px;
+  max-height: 50vh;
+  overflow-y: auto;
+  background: #fafafa;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 .placeholder {
-    color: #909399;
-    text-align: center;
-    margin: auto;
+  color: #909399;
+  text-align: center;
+  margin: auto;
 }
 
 /* 气泡 */
 .bubble {
-    max-width: 70%;
-    padding: 0.6rem 1rem;
-    border-radius: 12px;
-    line-height: 1.4;
-    font-size: 0.95rem;
+  max-width: 70%;
+  padding: 0.6rem 1rem;
+  border-radius: 12px;
+  line-height: 1.4;
+  font-size: 0.95rem;
 }
 
 .bubble.user {
-    align-self: flex-end;
-    background: #409eff;
-    color: #fff;
+  align-self: flex-end;
+  background: #409eff;
+  color: #fff;
 }
 
 .bubble.assistant {
-    align-self: flex-start;
-    background: #f1f1f1;
-    color: #303133;
+  align-self: flex-start;
+  background: #f1f1f1;
+  color: #303133;
 }
 
-/* ---------- 输入区 ---------- */
-.input-area {
-    display: flex;
-    gap: 0.5rem;
-    padding: 1rem 1.5rem;
-    background: #fff;
-    border-top: 1px solid #e4e7ed;
+/* ========= 一体化底部栏 ========= */
+.control-box {
+  padding: 12px 16px;
+  background: #fff;
+  border-top: 1px solid #e5e7eb;
 }
 
+.input-bar {
+  position: relative;   /* 供内部按钮绝对定位 */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 药丸输入框（Kimi 风） */
+/* 可滚动药丸输入框 */
 .chat-input {
-    flex: 1;
-    height: 40px;
-    padding: 0 12px;
-    border: 1px solid #dcdfe6;
-    border-radius: 8px;
-    font-size: 1rem;
-    transition: border-color 0.3s;
+  flex: 1;
+  max-height: 96px;               /* 3 行后不再增高 */
+  padding: 12px 52px 12px 16px;   /* 留按钮位置 */
+  border: 2px solid #d1d5db;
+  border-radius: 24px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 1.05rem;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  resize: none;                   /* 禁止手动拖拽 */
+  overflow-y: auto;               /* 超出即滚动 */
+  outline: none;
+  transition: all .2s ease;
+  line-height: 1.4;
+  field-sizing: content;          /* Chrome 自动高 */
 }
-
 .chat-input:focus {
-    outline: none;
-    border-color: #409eff;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, .25);
+}
+.chat-input:disabled {
+  background: #f3f4f6;
+  color: #9ca3af;
+  border-color: #e5e7eb;
+  cursor: not-allowed;
 }
 
+/* 滚动条样式（可选） */
+.chat-input::-webkit-scrollbar {
+  width: 6px;
+}
+.chat-input::-webkit-scrollbar-thumb {
+  background: #c4c4c4;
+  border-radius: 3px;
+}
+
+/* 按钮组：绝对定位在输入框内部右侧 */
+.btn-group {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 4px;
+}
+
+/* 语音按钮 */
+.voice-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: #f3f4f6;
+  color: #4b5563;
+  cursor: pointer;
+  transition: all .2s ease;
+  display: grid;
+  place-items: center;
+}
+.voice-btn:hover:not(:disabled) {
+  background: #e5e7eb;
+}
+.voice-btn.active {
+  background: #fee2e2;
+  color: #dc2626;
+}
+.voice-btn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+/* 发送按钮 */
 .send-btn {
-    padding: 0 1.2rem;
-    height: 40px;
-    border: none;
-    border-radius: 8px;
-    background: #409eff;
-    color: #fff;
-    font-size: 1rem;
-    cursor: pointer;
-    transition: background 0.3s;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  transition: all .2s ease;
+  display: grid;
+  place-items: center;
 }
-
 .send-btn:hover:not(:disabled) {
-    background: #66b1ff;
+  background: #1d4ed8;
 }
-
 .send-btn:disabled {
-    background: #c0c4cc;
-    cursor: not-allowed;
+  opacity: .5;
+  cursor: not-allowed;
 }
 
-/* ---------- 响应式 ---------- */
-@media (max-width: 600px) {
-    .talk-card {
-        border-radius: 0;
-        height: 100vh;
-        max-width: 100%;
-    }
-
-    .title {
-        border-radius: 0;
-    }
-}
-
+/* 实时识别文字 */
 .live-text {
-    margin-top: 8px;
-    font-size: 0.95rem;
-    color: #303133;
-    min-height: 1.4rem;
+  margin-top: 8px;
+  font-size: 0.95rem;
+  color: #303133;
+  white-space: pre-wrap;
+}
+.live-text .interim {
+  color: #909399;
 }
 
-.interim {
-    color: #909399;
-    /* 中间结果淡色 */
+/* 移动端微调 */
+@media (max-width: 600px) {
+  .input-bar {
+    gap: 6px;
+  }
+  .btn-group {
+    right: 2px;
+  }
 }
 </style>

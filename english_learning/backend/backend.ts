@@ -6,7 +6,8 @@ import fs from 'fs';
 import path from 'path';
 import express from 'express';
 import cors from 'cors';
-//tsx backend.ts
+//tsx backend.ts 
+// english_learning\backend
 import { insertWord, updateCollectByWord, deleteWord, getWord } from './database';
 
 const app = express();
